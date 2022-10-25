@@ -147,7 +147,7 @@
     "portscanner": "^2.2.0",
     "prom-client": "^12.0.0",
     "pug": "^3.0.0",
-    "replace": "^1.2.0",
+    "replace": "^1.2.2",
     "request": "^2.88.2",
     "sanitize-filename": "^1.6.3",
     "sanitize-html": "1.4.2",
