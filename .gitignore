@@ -7,13 +7,22 @@ app/
 uploads/complaints/*.*
 !uploads/complaints/.gitkeep
 ftp/legal.md
-package-lock.json
 i18n/*.json
 i18n/*.invalid
 !frontend/src/assets/i18n/*.json
 !data/static/i18n/*.json
 data/chatbot/*.*
 !data/chatbot/.gitkeep
+
+# TF
+secret.auto.tfvars
+**/.terraform/*
+*.tfstate.*
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+tfplan.binary
 
 # Build
 .nyc_output/
@@ -58,3 +67,4 @@ config/*.yml
 !config/unsafe.yml
 !config/tutorial.yml
 !config/oss.yml
+kubeconfig_*
