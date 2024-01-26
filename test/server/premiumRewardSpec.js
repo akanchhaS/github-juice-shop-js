@@ -35,3 +35,13 @@ describe('premiumReward', () => {
     expect(challenges.premiumPaywallChallenge.solved).to.equal(true)
   })
 })
+
+
+
+module.exports = function servePremiumContent () {
+  return (req, res) => {
+    utils.solveIf(challenges.premiumPaywallChallenge, () => { return true })
+    res.sendFile(path.resolve(__dirname, '../frontend/dist/frontend/assets/private/JuiceShop_Wallpaper_1920x1080_VR.jpg'))
+  }
+}
+
