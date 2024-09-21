@@ -11,7 +11,7 @@
   },
   "private": true,
   "dependencies": {
-    "@angular-devkit/build-angular": "^0.1102.18",
+    "@angular-devkit/build-angular": "^14.2.12",
     "@angular-material-extensions/password-strength": "^6.0.0",
     "@angular/animations": "^10.2.3",
     "@angular/cdk": "^10.1.2",
@@ -51,7 +51,7 @@
     "node-sass": "^4.14.1",
     "rxjs": "6.6.2",
     "snarkdown": "^1.2.2",
-    "socket.io-client": "^2.3.0",
+    "socket.io-client": "^4.8.0",
     "typescript": "~3.9.7",
     "zone.js": "^0.10.3"
   },
