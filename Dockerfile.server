@@ -1,4 +1,4 @@
-FROM akshriva1902/github-juice-shop:1.0.0-rc
+FROM akshriva1902/github-juice-shop:2.0.0
 
 RUN apt-get -y update && apt-get -y install ca-certificates apt-transport-https
 
