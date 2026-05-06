@@ -13,7 +13,7 @@
   "dependencies": {
     "@angular-devkit/build-angular": "^0.1102.18",
     "@angular-material-extensions/password-strength": "^6.0.0",
-    "@angular/animations": "^10.2.3",
+    "@angular/animations": "^21.2.8",
     "@angular/cdk": "^10.1.2",
     "@angular/cli": "^10.0.5",
     "@angular/common": "^10.2.3",
