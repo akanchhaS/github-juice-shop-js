@@ -1,0 +1,203 @@
+name: Hybrid AppSec triage
+
+on:
+  push:
+    branches:
+      - agent/install-hybrid-appsec
+    paths:
+      - .github/workflows/hybrid-appsec.yml
+      - .hybrid-appsec/**
+  schedule:
+    - cron: "17 3 * * *"
+      timezone: "UTC"
+  workflow_dispatch:
+    inputs:
+      mutation_mode:
+        description: GitHub code-scanning action mode
+        required: true
+        default: plan
+        type: choice
+        options:
+          - plan
+          - request
+      run_remediation:
+        description: Generate and validate the consolidated remediation patch
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hybrid-appsec-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  triage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: read
+    env:
+      RUN_MODE: ${{ github.event_name == 'schedule' && 'request' || github.event_name == 'workflow_dispatch' && inputs.mutation_mode || 'plan' }}
+    steps:
+      - name: Check out workflow code
+        uses: actions/checkout@v6
+
+      - name: Check out the validated target revision
+        uses: actions/checkout@v6
+        with:
+          ref: c4bea13c8712e01606947b58552d20f8f5e05319
+          path: target
+          persist-credentials: false
+
+      - name: Verify packaged workflow
+        run: |
+          python3 -m py_compile .hybrid-appsec/bin/*.py
+          python3 -m unittest discover -s .hybrid-appsec/tests -v
+
+      - name: Build a non-mutating plan
+        if: ${{ env.RUN_MODE == 'plan' }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python3 .hybrid-appsec/bin/daily_hybrid_run.py \
+            --target-checkout "$GITHUB_WORKSPACE/target" \
+            --out-dir .hybrid-appsec/run-artifacts \
+            --mode plan
+
+      - name: Mint a repository-scoped GitHub App token
+        if: ${{ env.RUN_MODE == 'request' }}
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.HYBRID_GITHUB_APP_ID }}
+          private-key: ${{ secrets.HYBRID_GITHUB_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: github-juice-shop-js
+
+      - name: Request FP dismissals and upload filtered SARIF
+        if: ${{ env.RUN_MODE == 'request' }}
+        env:
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          python3 .hybrid-appsec/bin/daily_hybrid_run.py \
+            --target-checkout "$GITHUB_WORKSPACE/target" \
+            --out-dir .hybrid-appsec/run-artifacts \
+            --mode request
+
+      - name: Preserve the decision ledger and plans
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: hybrid-appsec-${{ github.run_id }}
+          path: .hybrid-appsec/run-artifacts/
+          if-no-files-found: error
+          retention-days: 30
+
+  remediation:
+    if: >-
+      ${{ needs.triage.result == 'success' &&
+          vars.HYBRID_REMEDIATION_ENABLED == 'true' &&
+          github.event_name != 'push' &&
+          (github.event_name == 'schedule' || inputs.run_remediation) }}
+    needs: triage
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    environment: hybrid-appsec-remediation
+    permissions:
+      contents: read
+    steps:
+      - name: Check out workflow code
+        uses: actions/checkout@v6
+        with:
+          path: orchestrator
+
+      - name: Download triage artifacts
+        uses: actions/download-artifact@v5
+        with:
+          pattern: hybrid-appsec-*
+          path: orchestrator/.hybrid-appsec/run-artifacts
+          merge-multiple: true
+
+      - name: Mint a repository-scoped GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.HYBRID_GITHUB_APP_ID }}
+          private-key: ${{ secrets.HYBRID_GITHUB_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: github-juice-shop-js
+
+      - name: Check out the approved target revision
+        uses: actions/checkout@v6
+        with:
+          ref: c4bea13c8712e01606947b58552d20f8f5e05319
+          token: ${{ steps.app-token.outputs.token }}
+          path: target
+          persist-credentials: false
+
+      - name: Install target dependencies
+        uses: actions/setup-node@v6
+        with:
+          node-version: 14
+
+      - name: Install the application without lifecycle scripts
+        run: |
+          npm --prefix target install --ignore-scripts
+          npm --prefix target/frontend install --ignore-scripts
+
+      - name: Install the approved Codex CLI
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+
+      - name: Install Codex
+        env:
+          CODEX_CLI_VERSION: ${{ vars.CODEX_CLI_VERSION || 'latest' }}
+        run: npm install --global "@openai/codex@$CODEX_CLI_VERSION"
+
+      - name: Generate the consolidated security fix
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          python3 orchestrator/.hybrid-appsec/bin/remediation_orchestrator.py run-agent \
+            --manifest orchestrator/.hybrid-appsec/run-artifacts/remediation-manifest.json \
+            --repo target \
+            --agent-output orchestrator/.hybrid-appsec/run-artifacts/remediation-agent.md
+
+      - name: Validate the application and security diff
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          python3 orchestrator/.hybrid-appsec/bin/remediation_orchestrator.py validate \
+            --manifest orchestrator/.hybrid-appsec/run-artifacts/remediation-manifest.json \
+            --repo target \
+            --receipt orchestrator/.hybrid-appsec/run-artifacts/remediation-validation.json \
+            --review-output orchestrator/.hybrid-appsec/run-artifacts/remediation-review.json \
+            --review-schema orchestrator/.hybrid-appsec/schemas/remediation-review.schema.json
+
+      - name: Publish the validated draft PR
+        if: ${{ vars.HYBRID_PUBLISH_DRAFTS == 'true' }}
+        env:
+          GITHUB_APP_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          git -C target config user.name "hybrid-appsec[bot]"
+          git -C target config user.email "hybrid-appsec[bot]@users.noreply.github.com"
+          RECEIPT_SHA=$(python3 -c 'import json; print(json.load(open("orchestrator/.hybrid-appsec/run-artifacts/remediation-validation.json"))["receipt_sha256"])')
+          python3 orchestrator/.hybrid-appsec/bin/remediation_orchestrator.py publish \
+            --manifest orchestrator/.hybrid-appsec/run-artifacts/remediation-manifest.json \
+            --validation orchestrator/.hybrid-appsec/run-artifacts/remediation-validation.json \
+            --confirm-receipt-sha256 "$RECEIPT_SHA" \
+            --repo target \
+            --receipt orchestrator/.hybrid-appsec/run-artifacts/remediation-publication.json
+
+      - name: Preserve remediation evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: hybrid-remediation-${{ github.run_id }}
+          path: orchestrator/.hybrid-appsec/run-artifacts/
+          retention-days: 30

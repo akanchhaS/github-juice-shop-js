@@ -1,0 +1,46 @@
+{
+  "name": "Juice Shop JS",
+  "repository": "Assume/github-juice-shop-js",
+  "version": "main",
+  "commit": "c4bea13c8712e01606947b58552d20f8f5e05319",
+  "validation_mode": "static review plus local mocked canaries; no target service, public-system testing, cloud metadata, credentials, or target file writes",
+  "remediation": {
+    "strategy": "single_consolidated_pr",
+    "base_ref": "master",
+    "require_regression_tests": true,
+    "agent_review_required": true,
+    "validation_commands": [
+      "npm run lint",
+      "npm run test:server",
+      "npm run build"
+    ]
+  },
+  "complementary_scan": {
+    "engine": "Codex Security plugin workflow, terminal fallback; not a sealed native workbench scan",
+    "coverage": "partial",
+    "reviewed_files": 15,
+    "reportable_findings": 5,
+    "deferred_candidates": 1,
+    "scope_manifest": "fixtures/juice-shop-lightweight-scope.txt",
+    "validation_artifact": "validation/juice_shop_canary_results.json",
+    "included_paths": [
+      "lib/webhook.js",
+      "routes/2fa.js",
+      "routes/b2bOrder.js",
+      "routes/basket.js",
+      "routes/basketItems.js",
+      "routes/chatbot.js",
+      "routes/dataExport.js",
+      "routes/erasureRequest.js",
+      "routes/memory.js",
+      "routes/order.js",
+      "routes/payment.js",
+      "routes/recycles.js",
+      "routes/resetPassword.js",
+      "routes/restoreProgress.js",
+      "routes/wallet.js"
+    ],
+    "excluded_paths": "All 26 paths named by the refreshed CodeQL alerts",
+    "exclusion_reason": "Avoid duplicate semantic discovery and reduce review cost"
+  }
+}

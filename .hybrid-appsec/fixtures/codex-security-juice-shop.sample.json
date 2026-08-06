@@ -1,0 +1,286 @@
+{
+  "scanner": "Codex Security lightweight complementary review",
+  "native_scan_status": "Codex Security plugin workflow used in terminal fallback mode. The review was deliberately limited to 15 high-risk files not named by CodeQL and used mocked canaries; it is not a sealed native workbench scan.",
+  "findings": [
+    {
+      "id": "CS-JUICE-001",
+      "title": "Login SQL query concatenates attacker-controlled credentials",
+      "severity": "critical",
+      "confidence": "high",
+      "status": "reportable",
+      "category": "SQL injection",
+      "cwe": ["CWE-89"],
+      "locations": [
+        {
+          "path": "server.js",
+          "line": 515,
+          "role": "entrypoint"
+        },
+        {
+          "path": "routes/login.js",
+          "line": 29,
+          "role": "sink"
+        }
+      ],
+      "summary": "The `/rest/user/login` handler interpolates `req.body.email` and the hashed password into a raw SQL string. The email field reaches the query without parameter binding.",
+      "evidence": "`server.js` registers `POST /rest/user/login` and `routes/login.js` builds `SELECT * FROM Users WHERE email = '${req.body.email || ''}' ...` with request body data.",
+      "attack_path": "Unauthenticated HTTP client -> POST `/rest/user/login` -> `req.body.email` -> template string in `models.sequelize.query` -> database authentication query. A crafted email payload can alter the predicate and authenticate as another user or extract data depending on database behavior.",
+      "remediation": "Replace the raw interpolated SQL with a parameterized Sequelize query or `User.findOne` using structured `where` clauses. Add regression tests for classic tautology payloads and comment/union variants."
+    },
+    {
+      "id": "CS-JUICE-002",
+      "title": "Product search SQL query concatenates the q parameter",
+      "severity": "critical",
+      "confidence": "high",
+      "status": "reportable",
+      "category": "SQL injection",
+      "cwe": ["CWE-89"],
+      "locations": [
+        {
+          "path": "server.js",
+          "line": 521,
+          "role": "entrypoint"
+        },
+        {
+          "path": "routes/search.js",
+          "line": 12,
+          "role": "source"
+        },
+        {
+          "path": "routes/search.js",
+          "line": 14,
+          "role": "sink"
+        }
+      ],
+      "summary": "The `/rest/products/search` handler truncates but does not parameterize the `q` query parameter before embedding it in a SQL `LIKE` expression.",
+      "evidence": "`routes/search.js` assigns `criteria` from `req.query.q`, caps length, and interpolates it into `SELECT * FROM Products WHERE ((name LIKE '%${criteria}%' ...`.",
+      "attack_path": "Unauthenticated HTTP client -> GET `/rest/products/search?q=...` -> `criteria` -> raw SQL `LIKE` expression -> product query response. The query response path can expose data if a union-style payload is accepted by the backing database.",
+      "remediation": "Use parameterized replacements for the `LIKE` terms, escape wildcard characters explicitly, and keep output shaping independent from SQL construction. Add tests for quote, wildcard, comment, and union payloads."
+    },
+    {
+      "id": "CS-JUICE-003",
+      "title": "Profile image URL upload can request attacker-controlled URLs",
+      "severity": "high",
+      "confidence": "medium",
+      "status": "reportable",
+      "category": "Server-side request forgery",
+      "cwe": ["CWE-918"],
+      "locations": [
+        {
+          "path": "routes/profileImageUrlUpload.js",
+          "line": 15,
+          "role": "source"
+        },
+        {
+          "path": "routes/profileImageUrlUpload.js",
+          "line": 20,
+          "role": "sink"
+        },
+        {
+          "path": "routes/profileImageUrlUpload.js",
+          "line": 28,
+          "role": "sink"
+        }
+      ],
+      "summary": "Authenticated users can submit `imageUrl`; the server calls `request.get(url)` and writes successful responses to the uploads directory without scheme, host, or private-network filtering.",
+      "evidence": "`profileImageUrlUpload` takes `req.body.imageUrl`, passes it directly to `request.get`, and pipes successful responses to `frontend/dist/frontend/assets/public/images/uploads/...`.",
+      "attack_path": "Authenticated user -> POST `/profile` image URL update -> arbitrary URL in `req.body.imageUrl` -> server-side HTTP request -> response write or profile image URL update. The path can reach internal services if network egress permits it.",
+      "remediation": "Allow only `https` image URLs from trusted or public routable hosts, block private/link-local/loopback ranges after DNS resolution, limit response size and content type, and fetch through a hardened image proxy."
+    },
+    {
+      "id": "CS-JUICE-004",
+      "title": "Redirect allowlist uses substring matching",
+      "severity": "medium",
+      "confidence": "high",
+      "status": "reportable",
+      "category": "Open redirect",
+      "cwe": ["CWE-601"],
+      "locations": [
+        {
+          "path": "server.js",
+          "line": 565,
+          "role": "entrypoint"
+        },
+        {
+          "path": "routes/redirect.js",
+          "line": 12,
+          "role": "source"
+        },
+        {
+          "path": "lib/insecurity.js",
+          "line": 116,
+          "role": "root_control"
+        },
+        {
+          "path": "routes/redirect.js",
+          "line": 16,
+          "role": "sink"
+        }
+      ],
+      "summary": "The `/redirect` route allows redirects when the attacker-controlled `to` parameter contains an allowlisted URL as a substring, rather than matching scheme, host, and path exactly.",
+      "evidence": "`routes/redirect.js` passes `query.to` to `insecurity.isRedirectAllowed`, and `lib/insecurity.js` accepts any URL where `url.includes(allowedUrl)` is true before `res.redirect(toUrl)`.",
+      "attack_path": "Unauthenticated HTTP client -> GET `/redirect?to=...` -> substring allowlist check -> `res.redirect` to attacker-controlled URL that embeds an allowed URL string. This enables phishing or token leakage in flows that trust same-site redirects.",
+      "remediation": "Parse `to` with the URL API, require exact protocol and hostname matches, compare normalized origins/paths against an allowlist, and reject URLs with userinfo, encoded host delimiters, or nested allowed-url substrings."
+    },
+    {
+      "id": "CS-JUICE-005",
+      "title": "B2B order data is evaluated as a server-side expression",
+      "severity": "medium",
+      "confidence": "high",
+      "status": "reportable",
+      "category": "Code injection",
+      "cwe": ["CWE-94"],
+      "locations": [
+        {
+          "path": "routes/b2bOrder.js",
+          "line": 15,
+          "role": "source"
+        },
+        {
+          "path": "routes/b2bOrder.js",
+          "line": 19,
+          "role": "sink"
+        }
+      ],
+      "summary": "Authenticated B2B clients can supply `orderLinesData`, which is passed to `safeEval` inside a VM context. Container mode skips evaluation, but the normal supported runtime evaluates the expression with only a two-second outer timeout.",
+      "evidence": "The local mock observed the benign `codexBenignExpression(1)` canary unchanged at the evaluator. Existing repository tests exercise an infinite-loop payload and a catastrophic-regex payload, expecting 500 and 503 responses respectively, which confirms the intended bounded availability impact without contacting a running target.",
+      "attack_path": "Authenticated customer -> POST `/b2b/v2/orders` -> `body.orderLinesData` -> `vm.runInContext` -> `safeEval(orderLinesData)` -> request failure or up to two seconds of evaluator CPU. The repository proves a repeatable authenticated DoS path; a sandbox escape was not attempted or claimed.",
+      "remediation": "Replace expression evaluation with schema-validated JSON order lines. If expressions are unavoidable, use a separate low-privilege process with a strict grammar, memory/CPU limits, and no application objects or secrets."
+    },
+    {
+      "id": "CS-JUICE-006",
+      "title": "Basket retrieval does not bind the requested basket to the authenticated user",
+      "severity": "medium",
+      "confidence": "high",
+      "status": "reportable",
+      "category": "Authorization bypass / IDOR",
+      "cwe": ["CWE-639"],
+      "locations": [
+        {
+          "path": "routes/basket.js",
+          "line": 13,
+          "role": "source"
+        },
+        {
+          "path": "routes/basket.js",
+          "line": 14,
+          "role": "sink"
+        },
+        {
+          "path": "routes/basket.js",
+          "line": 19,
+          "role": "root_control"
+        }
+      ],
+      "summary": "The authenticated route looks up `req.params.id` directly and returns that basket. A comparison with the caller's basket id exists only inside challenge-solution bookkeeping and never blocks the response.",
+      "evidence": "The local canary `other-user-basket-canary` reached `Basket.findOne({ where: { id } })`; static tracing shows no subject/object authorization check before `res.json`.",
+      "attack_path": "Authenticated customer -> GET `/rest/basket/:id` -> attacker-selected basket id -> database lookup -> another basket's products returned. Authentication is present, but ownership is not enforced.",
+      "remediation": "Query by both basket id and the authenticated user's basket/user id, and return 404/403 before serializing a non-owned basket. Add cross-user negative tests."
+    },
+    {
+      "id": "CS-JUICE-007",
+      "title": "Duplicate BasketId keys bypass the basket ownership check",
+      "severity": "high",
+      "confidence": "high",
+      "status": "reportable",
+      "category": "Authorization bypass / parameter pollution",
+      "cwe": ["CWE-639", "CWE-235"],
+      "locations": [
+        {
+          "path": "routes/basketItems.js",
+          "line": 18,
+          "role": "source"
+        },
+        {
+          "path": "routes/basketItems.js",
+          "line": 29,
+          "role": "root_control"
+        },
+        {
+          "path": "routes/basketItems.js",
+          "line": 34,
+          "role": "sink"
+        }
+      ],
+      "summary": "The handler authorizes the first parsed `BasketId` but persists the last one, allowing a duplicate-key body to pass with the caller's basket first and target another basket last.",
+      "evidence": "A local parsed-body canary with BasketId values 1 then 2 passed the ownership branch for basket 1 and produced a `BasketItem` object containing BasketId 2.",
+      "attack_path": "Authenticated customer -> POST basket item with duplicate `BasketId` keys -> first value compared to `user.bid` -> last value selected for `BasketItem.build` -> item inserted into another user's basket.",
+      "remediation": "Reject duplicate security-sensitive keys, parse the body once into a strict schema, and overwrite/derive BasketId exclusively from the authenticated session."
+    },
+    {
+      "id": "CS-JUICE-008",
+      "title": "Checkout accepts another user's basket id",
+      "severity": "high",
+      "confidence": "high",
+      "status": "reportable",
+      "category": "Authorization bypass / IDOR",
+      "cwe": ["CWE-639"],
+      "locations": [
+        {
+          "path": "routes/order.js",
+          "line": 19,
+          "role": "source"
+        },
+        {
+          "path": "routes/order.js",
+          "line": 20,
+          "role": "root_control"
+        },
+        {
+          "path": "routes/order.js",
+          "line": 143,
+          "role": "sink"
+        }
+      ],
+      "summary": "Checkout loads and later clears the URL-selected basket without comparing it to the authenticated user's basket. Session-derived identity is used for email and wallet updates, so the subject and selected basket can differ.",
+      "evidence": "The `other-user-basket-canary` id reached `Basket.findOne`; the remainder of the handler updates inventory, writes an order, and destroys items using that same unbound basket id.",
+      "attack_path": "Authenticated customer -> POST `/rest/basket/:id/checkout` with another basket id -> unscoped basket lookup -> order/inventory processing -> target basket items destroyed and attacker-associated order state created.",
+      "remediation": "Resolve the basket from the authenticated subject, not the URL alone. Enforce ownership in the initial query and transactionally re-check it before inventory, wallet, and basket mutations."
+    },
+    {
+      "id": "CS-JUICE-009",
+      "title": "Recycle id JSON is accepted as a Sequelize selector object",
+      "severity": "medium",
+      "confidence": "medium",
+      "status": "candidate",
+      "category": "Query injection",
+      "cwe": ["CWE-943"],
+      "locations": [
+        {
+          "path": "routes/recycles.js",
+          "line": 12,
+          "role": "root_control"
+        },
+        {
+          "path": "routes/recycles.js",
+          "line": 10,
+          "role": "sink"
+        }
+      ],
+      "summary": "The public path parameter is JSON-parsed and passed directly as the Sequelize `id` condition, allowing an object rather than a scalar identifier.",
+      "evidence": "A local `{\"$gt\":0}` canary became `{ id: { $gt: 0 } }` at `Recycle.findAll`. Actual operator interpretation depends on the checked-out Sequelize configuration/version and was not exercised.",
+      "attack_path": "Anonymous client -> GET `/api/Recycles/:id` with encoded JSON object -> `JSON.parse` -> Sequelize where condition -> broadened or malformed recycle query.",
+      "remediation": "Require a canonical integer id before query construction and reject arrays/objects. Disable string operator aliases and add negative tests for encoded JSON objects."
+    },
+    {
+      "id": "CS-JUICE-010",
+      "title": "Authenticated users can mint arbitrary wallet balance",
+      "severity": "high",
+      "confidence": "high",
+      "status": "reportable",
+      "category": "Business logic / financial integrity",
+      "cwe": ["CWE-602", "CWE-840"],
+      "locations": [
+        {
+          "path": "routes/wallet.js",
+          "line": 21,
+          "role": "root_control"
+        }
+      ],
+      "summary": "The wallet top-up route derives the user id from the session but increments the balance by the unvalidated request amount without payment proof, bounds, or an authoritative server-side transaction.",
+      "evidence": "A local benign canary reached `Wallet.increment` with `balance: 999999` for the session-derived user id.",
+      "attack_path": "Authenticated customer -> PUT `/rest/wallet/balance` with arbitrary `balance` -> session middleware supplies UserId -> direct database increment -> attacker-controlled purchasing balance.",
+      "remediation": "Accept only a server-generated payment transaction reference, verify it once, derive the credited amount from trusted payment records, and enforce positive bounds and idempotency."
+    }
+  ]
+}

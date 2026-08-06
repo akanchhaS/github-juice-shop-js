@@ -1,0 +1,58 @@
+{
+  "networkPolicy": "all outbound network and cloud metadata access replaced by mocks",
+  "filePolicy": "all target file writes replaced by recorders",
+  "sqlLogin": "SELECT * FROM Users WHERE email = '' OR 1=1 --' AND password = 'hash(benign)' AND deletedAt IS NULL",
+  "sqlSearch": "SELECT * FROM Products WHERE ((name LIKE '%' UNION SELECT 'canary' --%' OR description LIKE '%' UNION SELECT 'canary' --%') AND deletedAt IS NULL) ORDER BY name",
+  "ssrf": {
+    "canary": "http://127.0.0.1.invalid/codex-canary.png",
+    "requestedUrl": "http://127.0.0.1.invalid/codex-canary.png"
+  },
+  "redirect": {
+    "canary": "https://attacker.invalid/?next=https://github.com/bkimminich/juice-shop",
+    "allowed": true
+  },
+  "fileAllowlistResolvedPath": "/Users/adam-berelowitz/Documents/Codex/2026-08-05/i/work/github-juice-shop-js/ftp/package.json.bak",
+  "archivePaths": {
+    "tempPath": "/canary.zip",
+    "outputPath": "uploads/complaints/../../outside-upload-canary.txt"
+  },
+  "noSqlWhere": {
+    "canary": "' || true || '",
+    "selector": {
+      "$where": "this.orderId === '' || true || ''"
+    }
+  },
+  "complementaryScan": {
+    "b2bEvaluation": {
+      "canary": "codexBenignExpression(1)",
+      "evaluated": "codexBenignExpression(1)"
+    },
+    "basketLookup": {
+      "id": "other-user-basket-canary"
+    },
+    "basketDuplicateKey": {
+      "authenticatedBasketId": 1,
+      "built": {
+        "ProductId": 9,
+        "BasketId": 2,
+        "quantity": 1
+      }
+    },
+    "checkoutLookup": {
+      "id": "other-user-basket-canary"
+    },
+    "recycleSelector": {
+      "id": {
+        "$gt": 0
+      }
+    },
+    "walletIncrement": {
+      "values": {
+        "balance": 999999
+      },
+      "where": {
+        "UserId": 7
+      }
+    }
+  }
+}
